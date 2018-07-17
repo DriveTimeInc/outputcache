@@ -38,96 +38,97 @@ module.exports = class OutputCache extends EventEmitter {
         this._header = "x-output-cache";
     }
 
-    middleware(req, res, next) {
-
-        const urlParsed = url.parse(req.originalUrl || req.url, true);
-        const isSkipForced = this.allowSkip && ((req.headers[this._header] === "ms" || urlParsed.query.cache === "false" || (req.cookies && req.cookies[this._header] === "ms")));
-        let cacheKey = `p-${urlParsed.pathname}`;
-
-        if (!this.noHeaders) {
-            res.setHeader(this._header, "ms");
-        }
-
-        if (isSkipForced) {
-            this.emit("miss", { url: urlParsed.path });
-            return next();
-        }
-
-        if (this.varyByQuery && Object.keys(urlParsed.query).length) {
-            if (this.varyByQuery.length) {
-                for (let i = 0; i < this.varyByQuery.length; i++) {
-                    if (urlParsed.query[this.varyByQuery[i]]) {
-                        cacheKey += `-q-${this.varyByQuery[i]}=${urlParsed.query[this.varyByQuery[i]]}`;
-                    }
-                }
-            } else {
-                cacheKey += `-q-${urlParsed.search}`;
+    middleware(urlOverride) {
+        return (req, res, next) => {
+            const urlParsed = url.parse(urlOverride || req.originalUrl || req.url, true);
+            const isSkipForced = this.allowSkip && ((req.headers[this._header] === "ms" || urlParsed.query.cache === "false" || (req.cookies && req.cookies[this._header] === "ms")));
+            let cacheKey = `p-${urlParsed.pathname}`;
+    
+            if (!this.noHeaders) {
+                res.setHeader(this._header, "ms");
             }
-        }
-
-        if (req.cookies) {
-            for (let i = 0; i < this.varyByCookies.length; i++) {
-                if (req.cookies[this.varyByCookies[i]]) {
-                    cacheKey += `-c-${this.varyByCookies[i]}=${req.cookies[this.varyByCookies[i]]}`;
-                }
-            }
-        }
-
-        cacheKey = this.caseSensitive ? cacheKey : cacheKey.toLowerCase();
-
-        this.cacheProvider.get(cacheKey).then((cacheResult) => {
-
-            if (cacheResult) {
-
-                let result = JSON.parse(cacheResult);
-
-                if (!this.noHeaders) {
-                    result.headers[this._header] = `ht ${result.ttl.maxAge} ${result.ttl.staleWhileRevalidate}`;
-                }
-
-                this.emit("hit", result);
-                res.writeHead(result.status, result.headers);
-                return res.end(result.body);
-
-            } else {
-
-                res.endOverride = res.end;
+    
+            if (isSkipForced) {
                 this.emit("miss", { url: urlParsed.path });
-
-                res.end = (data, encoding, cb) => {
-
-                    //deep clone
-                    let headers = JSON.parse(JSON.stringify(res._headers || res.headers || {}));
-
-                    if (!headers["cache-control"]) {
-                        headers["cache-control"] = `max-age=${this.ttl.maxAge}` + (this.staleWhileRevalidate ? `, stale-while-revalidate=${this.staleWhileRevalidate}` : "");
-                    }
-
-                    const ttl = this.useCacheHeader === false ? this.ttl : this.parseCacheControl(headers["cache-control"]);
-                    const isSkipStatus = (this.skip3xx && res.statusCode >= 300 && res.statusCode < 400) || (this.skip4xx && res.statusCode >= 400 && res.statusCode < 500) || (this.skip5xx && res.statusCode >= 500);
-
-                    if (!isSkipStatus && ttl.maxAge) {
-
-                        const cacheItem = {
-                            ttl,
-                            headers,
-                            key: cacheKey,
-                            status: res.statusCode,
-                            body: data.toString(),
-                            url: urlParsed.path
-                        };
-                        this.cacheProvider.set(cacheKey, JSON.stringify(cacheItem), ttl);
-                    }
-                    return res.endOverride(data, encoding, cb);
-                };
                 return next();
             }
-
-        }).catch((err) => {
-            this.emit("miss", { url: urlParsed.path });
-            this.emit("cacheProviderError", err);
-            return next();
-        });
+    
+            if (this.varyByQuery && Object.keys(urlParsed.query).length) {
+                if (this.varyByQuery.length) {
+                    for (let i = 0; i < this.varyByQuery.length; i++) {
+                        if (urlParsed.query[this.varyByQuery[i]]) {
+                            cacheKey += `-q-${this.varyByQuery[i]}=${urlParsed.query[this.varyByQuery[i]]}`;
+                        }
+                    }
+                } else {
+                    cacheKey += `-q-${urlParsed.search}`;
+                }
+            }
+    
+            if (req.cookies) {
+                for (let i = 0; i < this.varyByCookies.length; i++) {
+                    if (req.cookies[this.varyByCookies[i]]) {
+                        cacheKey += `-c-${this.varyByCookies[i]}=${req.cookies[this.varyByCookies[i]]}`;
+                    }
+                }
+            }
+    
+            cacheKey = this.caseSensitive ? cacheKey : cacheKey.toLowerCase();
+    
+            this.cacheProvider.get(cacheKey).then((cacheResult) => {
+    
+                if (cacheResult) {
+    
+                    let result = JSON.parse(cacheResult);
+    
+                    if (!this.noHeaders) {
+                        result.headers[this._header] = `ht ${result.ttl.maxAge} ${result.ttl.staleWhileRevalidate}`;
+                    }
+    
+                    this.emit("hit", result);
+                    res.writeHead(result.status, result.headers);
+                    return res.end(result.body);
+    
+                } else {
+    
+                    res.endOverride = res.end;
+                    this.emit("miss", { url: urlParsed.path });
+    
+                    res.end = (data, encoding, cb) => {
+    
+                        //deep clone
+                        let headers = JSON.parse(JSON.stringify(res._headers || res.headers || {}));
+    
+                        if (!headers["cache-control"]) {
+                            headers["cache-control"] = `max-age=${this.ttl.maxAge}` + (this.staleWhileRevalidate ? `, stale-while-revalidate=${this.staleWhileRevalidate}` : "");
+                        }
+    
+                        const ttl = this.useCacheHeader === false ? this.ttl : this.parseCacheControl(headers["cache-control"]);
+                        const isSkipStatus = (this.skip3xx && res.statusCode >= 300 && res.statusCode < 400) || (this.skip4xx && res.statusCode >= 400 && res.statusCode < 500) || (this.skip5xx && res.statusCode >= 500);
+    
+                        if (!isSkipStatus && ttl.maxAge) {
+    
+                            const cacheItem = {
+                                ttl,
+                                headers,
+                                key: cacheKey,
+                                status: res.statusCode,
+                                body: data.toString(),
+                                url: urlParsed.path
+                            };
+                            this.cacheProvider.set(cacheKey, JSON.stringify(cacheItem), ttl);
+                        }
+                        return res.endOverride(data, encoding, cb);
+                    };
+                    return next();
+                }
+    
+            }).catch((err) => {
+                this.emit("miss", { url: urlParsed.path });
+                this.emit("cacheProviderError", err);
+                return next();
+            });
+        }
     }
 
     //10x faster than regex
