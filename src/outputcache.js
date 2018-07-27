@@ -38,7 +38,7 @@ module.exports = class OutputCache extends EventEmitter {
         this._header = "x-output-cache";
     }
 
-    middleware(urlOverride) {
+    middleware(urlOverride, responseCodeOverride) {
         return (req, res, next) => {
             const urlParsed = url.parse(urlOverride || req.originalUrl || req.url, true);
             const isSkipForced = this.allowSkip && ((req.headers[this._header] === "ms" || urlParsed.query.cache === "false" || (req.cookies && req.cookies[this._header] === "ms")));
@@ -86,7 +86,7 @@ module.exports = class OutputCache extends EventEmitter {
                     }
     
                     this.emit("hit", result);
-                    res.writeHead(result.status, result.headers);
+                    res.writeHead(responseCodeOverride || result.status, result.headers);
                     return res.end(result.body);
     
                 } else {
@@ -112,7 +112,7 @@ module.exports = class OutputCache extends EventEmitter {
                                 ttl,
                                 headers,
                                 key: cacheKey,
-                                status: res.statusCode,
+                                status: responseCodeOverride || res.statusCode,
                                 body: data.toString(),
                                 url: urlParsed.path
                             };
